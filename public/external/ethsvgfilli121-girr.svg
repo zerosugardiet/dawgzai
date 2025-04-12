@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?><svg width='25' height='25' viewBox='0 0 25 25' fill='none' xmlns='http://www.w3.org/2000/svg'>
+<g clip-path='url(#clip0_6_556)'>
+<g clip-path='url(#clip1_6_556)'>
+<path d='M12.4 24.33C19.0274 24.33 24.4 18.9574 24.4 12.33C24.4 5.70254 19.0274 0.329956 12.4 0.329956C5.77259 0.329956 0.400009 5.70254 0.400009 12.33C0.400009 18.9574 5.77259 24.33 12.4 24.33Z' fill='#627EEA'/>
+<path d='M12.7735 3.32996V9.98249L18.3963 12.495L12.7735 3.32996Z' fill='white' fill-opacity='0.602'/>
+<path d='M12.7735 3.32996L7.15001 12.495L12.7735 9.98249V3.32996Z' fill='white'/>
+<path d='M12.7735 16.8061V21.3264L18.4001 13.5421L12.7735 16.8061Z' fill='white' fill-opacity='0.602'/>
+<path d='M12.7735 21.3264V16.8054L7.15001 13.5421L12.7735 21.3264Z' fill='white'/>
+<path d='M12.7735 15.7597L18.3963 12.495L12.7735 9.98401V15.7597Z' fill='white' fill-opacity='0.2'/>
+<path d='M7.15001 12.495L12.7735 15.7597V9.98401L7.15001 12.495Z' fill='white' fill-opacity='0.602'/>
+</g>
+</g>
+<defs>
+<clipPath id='clip0_6_556'>
+<rect width='24' height='24' fill='white' transform='translate(0.400009 0.329956)'/>
+</clipPath>
+<clipPath id='clip1_6_556'>
+<rect width='24' height='24' fill='white' transform='translate(0.400009 0.329956)'/>
+</clipPath>
+</defs>
+</svg>
