@@ -48,47 +48,60 @@ const Home = (props) => {
   const [countdown, setCountdown] = useState(0)
   const [isEditing, setIsEditing] = useState(false) // Track if user is editing input
 
-  // Initialize provider and handle wallet connection
+  // Initialize provider without automatic connection
   useEffect(() => {
-    const initProvider = async () => {
-      if (window.ethereum) {
-        try {
-          const provider = new ethers.providers.Web3Provider(window.ethereum)
-          setProvider(provider)
-          
-          // Request account access
-          const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' })
-          if (accounts.length > 0) {
-            const signer = provider.getSigner()
-            setSigner(signer)
-            setAddress(accounts[0].toLowerCase())
-            setIsConnected(true)
-          }
+    if (window.ethereum) {
+      const provider = new ethers.providers.Web3Provider(window.ethereum)
+      setProvider(provider)
 
-          // Listen for account changes
-          window.ethereum.on('accountsChanged', (accounts) => {
-            if (accounts.length > 0) {
-              setAddress(accounts[0].toLowerCase())
-            } else {
-              setAddress(null)
-              setIsConnected(false)
-            }
-          })
-
-          // Listen for chain changes
-          window.ethereum.on('chainChanged', (chainId) => {
-            const newChainId = parseInt(chainId, 16)
-            setSelectedChain(newChainId)
-            window.location.reload()
-          })
-        } catch (error) {
-          console.error('Error initializing provider:', error)
+      // Check if already connected
+      provider.listAccounts().then(accounts => {
+        if (accounts.length > 0) {
+          const signer = provider.getSigner()
+          setSigner(signer)
+          setAddress(accounts[0].toLowerCase())
+          setIsConnected(true)
         }
-      }
-    }
+      })
 
-    initProvider()
+      // Only set up listeners for chain/account changes
+      window.ethereum.on('accountsChanged', (accounts) => {
+        if (accounts.length > 0) {
+          const signer = provider.getSigner()
+          setSigner(signer)
+          setAddress(accounts[0].toLowerCase())
+          setIsConnected(true)
+        } else {
+          setAddress(null)
+          setSigner(null)
+          setIsConnected(false)
+        }
+      })
+
+      window.ethereum.on('chainChanged', (chainId) => {
+        const newChainId = parseInt(chainId, 16)
+        setSelectedChain(newChainId)
+        window.location.reload()
+      })
+    }
   }, [])
+
+  // New function to handle wallet connection
+  const connectWallet = async () => {
+    if (!provider) return
+    
+    try {
+      const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' })
+      if (accounts.length > 0) {
+        const signer = provider.getSigner()
+        setSigner(signer)
+        setAddress(accounts[0].toLowerCase())
+        setIsConnected(true)
+      }
+    } catch (error) {
+      console.error('Error connecting wallet:', error)
+    }
+  }
 
   // Fetch balances
   useEffect(() => {

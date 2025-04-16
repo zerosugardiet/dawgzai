@@ -9,11 +9,11 @@ const Profit = (props) => {
       <div className={`profit-container10 ${props.rootClassName} `}>
         <div className="profit-background-horizontal-border">
           <span className="profit-text10">Calculate your profit</span>
-          <img
+          {/* <img
             alt={props.imageAlt}
             src={props.imageSrc}
             className="profit-image"
-          />
+          /> */}
           <div className="profit-container11">
             <div className="profit-container12">
               <div className="profit-container13"></div>
@@ -647,7 +647,8 @@ const Profit = (props) => {
 }
 
 Profit.defaultProps = {
-  imageSrc: '/transformed-3.png',
+  // imageSrc: '/transformed-3.png',
+  imageSrc: '',
   rootClassName: '',
   imageAlt: 'image',
 }
