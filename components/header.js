@@ -2,6 +2,7 @@ import React from 'react'
 
 import PropTypes from 'prop-types'
 import { useTranslations } from 'next-intl'
+import { ConnectWallet } from './ConnectWallet'
 
 const Header = (props) => {
   return (
@@ -64,9 +65,7 @@ const Header = (props) => {
               />
             </div>
             <div className="header-background-border-shadow">
-              <span className="header-text4 dawgz.aiSemanticButton">
-                Connect Wallet
-              </span>
+              <ConnectWallet />
             </div>
             <div className="header-arrow1">
               <img

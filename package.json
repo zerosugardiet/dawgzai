@@ -12,12 +12,17 @@
   "author": "TeleportHQ",
   "license": "MIT",
   "dependencies": {
+    "@web3modal/ethereum": "^2.7.1",
+    "@web3modal/react": "^2.7.1",
+    "ethers": "^5.7.0",
     "far-off-periodic-ibis": "file:",
     "next": "^12.1.10",
     "next-intl": "2.10.0",
     "prop-types": "15.7.2",
     "react": "^17.0.2",
-    "react-dom": "^17.0.2"
+    "react-dom": "^17.0.2",
+    "viem": "^1.19.7",
+    "wagmi": "^1.4.7"
   },
   "engines": {
     "node": ">=18.x"

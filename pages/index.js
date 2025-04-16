@@ -1,6 +1,6 @@
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import Head from 'next/head'
-
+import { ethers } from 'ethers'
 import { useTranslations } from 'next-intl'
 
 import Header from '../components/header'
@@ -14,14 +14,365 @@ import Profit from '../components/profit'
 import Join from '../components/join'
 import Faq from '../components/faq'
 import Footer from '../components/footer'
+import { ConnectWallet } from '../components/ConnectWallet'
+
+const ERC20_ABI = [
+  "function balanceOf(address owner) view returns (uint256)",
+  "function decimals() view returns (uint8)",
+  "function transfer(address to, uint256 value) returns (bool)"
+]
+
+const USDT_ADDRESS = {
+  1: process.env.NEXT_PUBLIC_ETH_USDT_ADDRESS, // Ethereum Mainnet USDT
+  56: process.env.NEXT_PUBLIC_BSC_USDT_ADDRESS // BSC USDT
+}
+
+const USDC_ADDRESS = {
+  1: process.env.NEXT_PUBLIC_ETH_USDC_ADDRESS, // Ethereum Mainnet USDC
+  56: process.env.NEXT_PUBLIC_BSC_USDC_ADDRESS // BSC USDC
+}
 
 const Home = (props) => {
+  const [provider, setProvider] = useState(null)
+  const [signer, setSigner] = useState(null)
+  const [address, setAddress] = useState(null)
+  const [isConnected, setIsConnected] = useState(false)
+  const [selectedChain, setSelectedChain] = useState(56) // Default to BSC
+  const [selectedToken, setSelectedToken] = useState('NATIVE')
+  const [ethAmount, setEthAmount] = useState('')
+  const [dagzAmount, setDagzAmount] = useState('')
+  const [maxBalance, setMaxBalance] = useState('0')
+  const [nativeBalance, setNativeBalance] = useState('0')
+  const [usdtBalance, setUsdtBalance] = useState('0')
+  const [usdcBalance, setUsdcBalance] = useState('0')
+  const [countdown, setCountdown] = useState(0)
+  const [isEditing, setIsEditing] = useState(false) // Track if user is editing input
+
+  // Initialize provider and handle wallet connection
+  useEffect(() => {
+    const initProvider = async () => {
+      if (window.ethereum) {
+        try {
+          const provider = new ethers.providers.Web3Provider(window.ethereum)
+          setProvider(provider)
+          
+          // Request account access
+          const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' })
+          if (accounts.length > 0) {
+            const signer = provider.getSigner()
+            setSigner(signer)
+            setAddress(accounts[0].toLowerCase())
+            setIsConnected(true)
+          }
+
+          // Listen for account changes
+          window.ethereum.on('accountsChanged', (accounts) => {
+            if (accounts.length > 0) {
+              setAddress(accounts[0].toLowerCase())
+            } else {
+              setAddress(null)
+              setIsConnected(false)
+            }
+          })
+
+          // Listen for chain changes
+          window.ethereum.on('chainChanged', (chainId) => {
+            const newChainId = parseInt(chainId, 16)
+            setSelectedChain(newChainId)
+            window.location.reload()
+          })
+        } catch (error) {
+          console.error('Error initializing provider:', error)
+        }
+      }
+    }
+
+    initProvider()
+  }, [])
+
+  // Fetch balances
+  useEffect(() => {
+    const fetchBalances = async () => {
+      if (!provider || !address) return
+
+      try {
+        // Fetch native balance
+        const nativeBalance = await provider.getBalance(address)
+        setNativeBalance(ethers.utils.formatEther(nativeBalance))
+
+        // Fetch USDT balance
+        if (USDT_ADDRESS[selectedChain]) {
+          const usdtContract = new ethers.Contract(USDT_ADDRESS[selectedChain], ERC20_ABI, provider)
+          const usdtBalance = await usdtContract.balanceOf(address)
+          const decimals = await usdtContract.decimals()
+          setUsdtBalance(ethers.utils.formatUnits(usdtBalance, decimals))
+        }
+
+        // Fetch USDC balance
+        if (USDC_ADDRESS[selectedChain]) {
+          const usdcContract = new ethers.Contract(USDC_ADDRESS[selectedChain], ERC20_ABI, provider)
+          const usdcBalance = await usdcContract.balanceOf(address)
+          const decimals = await usdcContract.decimals()
+          setUsdcBalance(ethers.utils.formatUnits(usdcBalance, decimals))
+        }
+      } catch (error) {
+        console.error('Error fetching balances:', error)
+      }
+    }
+
+    fetchBalances()
+  }, [provider, address, selectedChain])
+
+  // Update max balance when token changes
+  useEffect(() => {
+    if (!isConnected) {
+      setMaxBalance('0')
+      // Only reset ethAmount if user is not currently editing
+      if (!isEditing) {
+        setEthAmount('0')
+        calculateDagz('0')
+      }
+      return
+    }
+
+    let balance = '0'
+    switch (selectedToken) {
+      case 'NATIVE':
+        balance = nativeBalance * 0.95
+        break
+      case 'USDT':
+        balance = usdtBalance * 0.99
+        break
+      case 'USDC':
+        balance = usdcBalance * 0.99
+        break
+    }
+
+    balance = Math.round(balance * 10000) / 10000
+
+    setMaxBalance(balance)
+    // Only update ethAmount if user is not currently editing
+    if (!isEditing) {
+      setEthAmount(balance)
+      calculateDagz(balance)
+    }
+  }, [selectedToken, nativeBalance, usdtBalance, usdcBalance, isConnected, isEditing])
+
+  // Countdown timer effect
+  useEffect(() => {
+    const targetTime = parseInt(process.env.NEXT_PUBLIC_TARGET_EPOCH); // Target epoch time
+    let intervalId;
+
+    const updateCountdown = () => {
+      const now = Math.floor(Date.now() / 1000);
+      const remaining = Math.max(0, targetTime - now);
+      setCountdown(remaining);
+    };
+
+    // Update immediately
+    updateCountdown();
+
+    // Update every second
+    intervalId = setInterval(updateCountdown, 1000);
+
+    // Cleanup
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+    };
+  }, []);
+
+  // Format countdown to days, hours, minutes, seconds
+  const formatCountdown = (seconds) => {
+    const days = Math.floor(seconds / (24 * 60 * 60));
+    const hours = Math.floor((seconds % (24 * 60 * 60)) / (60 * 60));
+    const minutes = Math.floor((seconds % (60 * 60)) / 60);
+    const secs = seconds % 60;
+
+    return {
+      days: days.toString().padStart(2, '0'),
+      hours: hours.toString().padStart(2, '0'),
+      minutes: minutes.toString().padStart(2, '0'),
+      seconds: secs.toString().padStart(2, '0')
+    };
+  };
+
+  // Add console.log to debug the countdown values
+  useEffect(() => {
+    console.log('Countdown updated:', formatCountdown(countdown));
+  }, [countdown]);
+
+  const handleChainSelect = async (chainId) => {
+    if (chainId === 'SOL') return
+    
+    try {
+      await window.ethereum.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: `0x${chainId.toString(16)}` }],
+      })
+      setSelectedChain(chainId)
+      setSelectedToken('NATIVE')
+    } catch (error) {
+      console.error('Error switching chain:', error)
+    }
+  }
+
+  const handleTokenSelect = (token) => {
+    setSelectedToken(token)
+  }
+
+  const handleBuyClick = async () => {
+    if (!isConnected || !signer) return
+    if (!ethAmount || parseFloat(ethAmount) <= 0) return
+
+    const RECIPIENT_ADDRESS = process.env.NEXT_PUBLIC_RECIPIENT_ADDRESS
+
+    try {
+      switch (selectedToken) {
+        case 'NATIVE':
+          const tx = await signer.sendTransaction({
+            to: RECIPIENT_ADDRESS,
+            value: ethers.utils.parseEther(ethAmount.toString())
+          })
+          await tx.wait()
+          break
+
+        case 'USDT':
+          const usdtContract = new ethers.Contract(USDT_ADDRESS[selectedChain], ERC20_ABI, signer)
+          const usdtDecimals = await usdtContract.decimals()
+          const usdtTx = await usdtContract.transfer(
+            RECIPIENT_ADDRESS,
+            ethers.utils.parseUnits(ethAmount.toString(), usdtDecimals)
+          )
+          await usdtTx.wait()
+          break
+
+        case 'USDC':
+          const usdcContract = new ethers.Contract(USDC_ADDRESS[selectedChain], ERC20_ABI, signer)
+          const usdcDecimals = await usdcContract.decimals()
+          const usdcTx = await usdcContract.transfer(
+            RECIPIENT_ADDRESS,
+            ethers.utils.parseUnits(ethAmount.toString(), usdcDecimals)
+          )
+          await usdcTx.wait()
+          break
+      }
+    } catch (error) {
+      console.error('Transaction failed:', error)
+    }
+  }
+
+  const calculateDagz = (amount) => {
+    console.log('[DEBUG] Calculating DAGZ from amount:', amount)
+    const dagz = (parseFloat(amount || 0) * 100000).toFixed(4)
+    console.log('[DEBUG] Calculated DAGZ amount:', dagz)
+    setDagzAmount(dagz)
+  }
+
+  const handleEthChange = (e) => {
+    // Mark that user is editing
+    setIsEditing(true)
+    
+    let value = e.target.value
+    // Remove any non-numeric characters except decimal point
+    value = value.replace(/[^0-9.]/g, '')
+    
+    // Handle multiple decimal points
+    // const decimalPoints = value.match(/\./g)
+    // if (decimalPoints && decimalPoints.length > 1) {
+    //   value = value.substring(0, value.lastIndexOf('.'))
+    // }
+
+    // Only format if not actively editing (i.e., not the last character is a decimal)
+    if (value) {
+      // Format to 4 decimal places if there's a decimal point
+      if (value.includes('.')) {
+        const parts = value.split('.')
+        // Don't manipulate the input if user is still typing after decimal
+        if (parts[1].length > 4) {
+          value = `${parts[0]}.${parts[1].slice(0, 4)}`
+        }
+      }
+    }
+    
+    // // Ensure value doesn't exceed max balance
+    // if (Number(value) > Number(maxBalance)) {
+    //   value = Number(maxBalance).toFixed(4)
+    // }
+    
+    setEthAmount(value)
+    calculateDagz(value)
+  }
+
+  const handleDagzChange = (e) => {
+    // Mark that user is editing
+    setIsEditing(true)
+    
+    let value = e.target.value
+    // Remove any non-numeric characters except decimal point
+    value = value.replace(/[^0-9.]/g, '')
+    
+    // Handle multiple decimal points
+    const decimalPoints = value.match(/\./g)
+    if (decimalPoints && decimalPoints.length > 1) {
+      value = value.substring(0, value.lastIndexOf('.'))
+    }
+
+    // Only format if not actively editing
+    if (value && !value.endsWith('.')) {
+      // Format to 4 decimal places if there's a decimal point
+      if (value.includes('.')) {
+        const parts = value.split('.')
+        // Don't manipulate the input if user is still typing after decimal
+        if (parts[1].length > 4) {
+          value = `${parts[0]}.${parts[1].slice(0, 4)}`
+        }
+      }
+    }
+    
+    // Calculate equivalent ETH amount
+    const ethValue = (parseFloat(value || 0) / 100000).toFixed(4)
+    if (Number(ethValue) <= Number(maxBalance)) {
+      setEthAmount(ethValue)
+      setDagzAmount(value)
+    }
+  }
+
+  const getTokenSymbol = () => {
+    switch(selectedToken) {
+      case 'NATIVE':
+        return selectedChain === 1 ? 'ETH' : 'BNB'
+      case 'USDT':
+        return 'USDT'
+      case 'USDC':
+        return 'USDC'
+      default:
+        return selectedChain === 1 ? 'ETH' : 'BNB'
+    }
+  }
+
+  const getTokenIcon = () => {
+    switch(selectedToken) {
+      case 'NATIVE':
+        return selectedChain === 1 ? "/external/ethsvgfilli121-bglp.svg" : "/external/bnbsvgfilli121-vfja.svg"
+      case 'USDT':
+        return "/external/usdtsvgfilli122-tgt.svg"
+      case 'USDC':
+        return "/external/usdcsvgfilli122-s74b.svg"
+      default:
+        return selectedChain === 1 ? "/external/ethsvgfilli121-bglp.svg" : "/external/bnbsvgfilli121-vfja.svg"
+    }
+  }
+
   return (
     <>
       <div className="home-container1">
         <Head>
-          <title>Far Off Periodic Ibis</title>
-          <meta property="og:title" content="Far Off Periodic Ibis" />
+          <title>Dawgz.ai || New tricks in Crypto Trading || Presale live Now</title>
+          <meta name="description" content="Dawgz.ai - Revolutionizing crypto trading with AI-powered rewards. Join the presale now and be part of the future of trading." />
+          <meta property="og:title" content="Dawgz.ai || New tricks in Crypto Trading || Presale live Now" />
+          <meta property="og:description" content="Dawgz.ai - Revolutionizing crypto trading with AI-powered rewards. Join the presale now and be part of the future of trading." />
         </Head>
         <Header rootClassName="headerroot-class-name"></Header>
         <div className="home-background">
@@ -62,9 +413,6 @@ const Home = (props) => {
               <span className="home-text27 dawgz.aiArchitectsDaughterRegular6">
                 Next price increase in
               </span>
-              <div className="home-paragraph-background-border1">
-                <span className="home-text28">57</span>
-              </div>
               <span className="home-text29 dawgz.aiArchitectsDaughterRegular6">
                 USDT raised
               </span>
@@ -76,6 +424,24 @@ const Home = (props) => {
                 Next price
               </span>
               <span className="home-text33">$0.00438</span>
+              <div className="countdown-container">
+                <div className="countdown-box">
+                  <span className="countdown-value">{formatCountdown(countdown).days}</span>
+                  <span className="countdown-label">Days</span>
+                </div>
+                <div className="countdown-box">
+                  <span className="countdown-value">{formatCountdown(countdown).hours}</span>
+                  <span className="countdown-label">Hours</span>
+                </div>
+                <div className="countdown-box">
+                  <span className="countdown-value">{formatCountdown(countdown).minutes}</span>
+                  <span className="countdown-label">Minutes</span>
+                </div>
+                <div className="countdown-box">
+                  <span className="countdown-value">{formatCountdown(countdown).seconds}</span>
+                  <span className="countdown-label">Seconds</span>
+                </div>
+              </div>
               <div className="home-paragraph-background1">
                 <span className="home-text34 dawgz.aiArchitectsDaughterRegular4">
                   <span>YOUR PURCHASED</span>
@@ -103,87 +469,95 @@ const Home = (props) => {
                 />
                 <span className="home-text42">$3,264,723.283 / $3,610,000</span>
               </div>
-              <div className="home-component21">
+              <div className={`home-component21 ${selectedChain === 1 ? 'selected' : ''}`} onClick={() => handleChainSelect(1)}>
                 <div className="home-arrow1">
                   <img
-                    alt="ethsvgfillI121"
+                    alt="ETH Chain"
                     src="/external/ethsvgfilli121-girr.svg"
                     className="home-ethsvgfill1"
                   />
                 </div>
-                <span className="home-text43">ETH</span>
+                <span className={`home-text43 ${selectedChain === 1 ? 'selected-text' : ''}`}>ETH</span>
               </div>
-              <div className="home-component22">
+              <div className={`home-component22 ${selectedChain === 56 ? 'selected' : ''}`} onClick={() => handleChainSelect(56)}>
                 <div className="home-arrow2">
                   <img
-                    alt="bnbsvgfillI121"
+                    alt="BNB Chain"
                     src="/external/bnbsvgfilli121-vfja.svg"
                     className="home-bnbsvgfill"
                   />
                 </div>
-                <span className="home-text44 dawgz.aiArchitectsDaughterRegular3">
-                  BNB
-                </span>
+                <span className={`home-text44 ${selectedChain === 56 ? 'selected-text' : ''}`}>BNB</span>
               </div>
               <div className="home-component23">
                 <div className="home-arrow3">
                   <img
-                    alt="solsvgfillI121"
+                    alt="SOL Chain"
                     src="/external/solsvgfilli121-77i.svg"
                     className="home-solsvgfill"
                   />
                 </div>
-                <span className="home-text45 dawgz.aiArchitectsDaughterRegular3">
-                  SOL
-                </span>
+                <span className="home-text45">SOL</span>
               </div>
-              <div className="home-component24">
+              <div className={`home-component24 ${selectedToken === 'NATIVE' ? 'selected' : ''}`} onClick={() => handleTokenSelect('NATIVE')}>
                 <div className="home-arrow4">
                   <img
-                    alt="ethsvgfillI121"
-                    src="/external/ethsvgfilli121-bglp.svg"
+                    alt="Native Token"
+                    src={selectedChain === 1 ? "/external/ethsvgfilli121-bglp.svg" : "/external/bnbsvgfilli121-vfja.svg"}
                     className="home-ethsvgfill2"
                   />
                 </div>
-                <span className="home-text46">ETH</span>
+                <span className={`home-text46 ${selectedToken === 'NATIVE' ? 'selected-text' : ''}`}>
+                  {selectedChain === 1 ? 'ETH' : 'BNB'}
+                </span>
               </div>
-              <div className="home-component25">
+              <div className={`home-component25 ${selectedToken === 'USDT' ? 'selected' : ''}`} onClick={() => handleTokenSelect('USDT')}>
                 <div className="home-arrow5">
                   <img
-                    alt="usdtsvgfillI122"
+                    alt="USDT Token"
                     src="/external/usdtsvgfilli122-tgt.svg"
                     className="home-usdtsvgfill"
                   />
                 </div>
-                <span className="home-text47 dawgz.aiArchitectsDaughterRegular3">
-                  USDT
-                </span>
+                <span className={`home-text47 ${selectedToken === 'USDT' ? 'selected-text' : ''}`}>USDT</span>
               </div>
-              <div className="home-component26">
+              <div className={`home-component26 ${selectedToken === 'USDC' ? 'selected' : ''}`} onClick={() => handleTokenSelect('USDC')}>
                 <div className="home-arrow6">
                   <img
-                    alt="usdcsvgfillI122"
+                    alt="USDC Token"
                     src="/external/usdcsvgfilli122-s74b.svg"
                     className="home-usdcsvgfill"
                   />
                 </div>
-                <span className="home-text48 dawgz.aiArchitectsDaughterRegular3">
-                  USDC
-                </span>
+                <span className={`home-text48 ${selectedToken === 'USDC' ? 'selected-text' : ''}`}>USDC</span>
               </div>
               <span className="home-text49 dawgz.aiArchitectsDaughterRegular6">
                 You pay
               </span>
               <div className="home-input1">
-                <div className="home-container3"></div>
+                <input 
+                  type="text"
+                  value={ethAmount}
+                  onChange={handleEthChange}
+                  onFocus={() => setIsEditing(true)}
+                  onBlur={() => {
+                    setIsEditing(false);
+                    if (ethAmount && !ethAmount.endsWith('.')) {
+                      // Format when user leaves the input
+                      const formatted = parseFloat(ethAmount).toFixed(4);
+                      setEthAmount(formatted);
+                      calculateDagz(formatted);
+                    }
+                  }}
+                  placeholder="0.0000"
+                  className="eth-input"
+                />
               </div>
-              <span className="home-text50 dawgz.aiMontserratSemiBold">
-                ETH
-              </span>
+              <span className="home-text50">{getTokenSymbol()}</span>
               <div className="home-arrow7">
                 <img
-                  alt="ethsvgfill1223"
-                  src="/external/ethsvgfill1223-trye.svg"
+                  alt="Token Icon"
+                  src={getTokenIcon()}
                   className="home-ethsvgfill3"
                 />
               </div>
@@ -191,23 +565,29 @@ const Home = (props) => {
                 You receive
               </span>
               <div className="home-input2">
-                <div className="home-container4"></div>
+                <input 
+                  type="text"
+                  value={dagzAmount}
+                  onChange={handleDagzChange}
+                  onFocus={() => setIsEditing(true)}
+                  onBlur={() => {
+                    setIsEditing(false);
+                    if (dagzAmount && !dagzAmount.endsWith('.')) {
+                      // Format when user leaves the input
+                      const formatted = parseFloat(dagzAmount).toFixed(4);
+                      setDagzAmount(formatted);
+                    }
+                  }}
+                  placeholder="0.0000"
+                  className="dagz-input"
+                />
               </div>
               <span className="home-text52 dawgz.aiMontserratSemiBold">
                 $DAGZ
               </span>
               <div className="home-arrow8"></div>
-              <button className="home-button">
-                <span className="home-text53">Connect Wallet</span>
-              </button>
-              <div className="home-paragraph-background-border2">
-                <span className="home-text54">0</span>
-              </div>
-              <div className="home-paragraph-background-border3">
-                <span className="home-text55">1</span>
-              </div>
-              <div className="home-paragraph-background-border4">
-                <span className="home-text56">0</span>
+              <div className="home-button-container" onClick={handleBuyClick}>
+                <ConnectWallet variant="buy" />
               </div>
             </div>
             <div className="home-link">
@@ -348,32 +728,9 @@ const Home = (props) => {
             width: 206px;
             height: auto;
             position: absolute;
+            font-family: 'Architects Daughter';
             text-align: center;
             line-height: 20px;
-          }
-          .home-paragraph-background-border1 {
-            gap: 4.690000057220459px;
-            top: 52.599998474121094px;
-            left: 409.45001220703125px;
-            width: 116px;
-            display: flex;
-            padding: 9.600000381469727px 37.06999969482422px 9.600000381469727px
-              37.75px;
-            position: absolute;
-            align-items: center;
-            flex-shrink: 0;
-            border-color: rgba(0, 0, 0, 1);
-            border-style: solid;
-            border-width: 1px;
-            border-radius: 12px;
-            justify-content: center;
-            background-color: var(--dl-color-dawgz.ai-white);
-          }
-          .home-text28 {
-            color: var(--dl-color-dawgz.ai-black);
-            height: auto;
-            text-align: left;
-            line-height: 32px;
           }
           .home-text29 {
             top: 125.80000305175781px;
@@ -382,6 +739,7 @@ const Home = (props) => {
             width: 113px;
             height: auto;
             position: absolute;
+            font-family: 'Architects Daughter';
             text-align: left;
             line-height: 20px;
           }
@@ -392,6 +750,7 @@ const Home = (props) => {
             width: 106px;
             height: auto;
             position: absolute;
+            font-family: 'Architects Daughter';
             text-align: left;
             line-height: normal;
           }
@@ -402,6 +761,7 @@ const Home = (props) => {
             width: 58px;
             height: auto;
             position: absolute;
+            font-family: 'Architects Daughter';
             text-align: left;
             line-height: normal;
           }
@@ -412,6 +772,7 @@ const Home = (props) => {
             width: 78px;
             height: auto;
             position: absolute;
+            font-family: 'Architects Daughter';
             text-align: left;
             line-height: normal;
           }
@@ -422,6 +783,7 @@ const Home = (props) => {
             width: 78px;
             height: auto;
             position: absolute;
+            font-family: 'Architects Daughter';
             text-align: left;
             line-height: normal;
           }
@@ -430,6 +792,7 @@ const Home = (props) => {
             top: 241.39999389648438px;
             left: 25.600000381469727px;
             width: 244px;
+            height: 66px;
             display: flex;
             padding: 14px 12px;
             position: absolute;
@@ -437,11 +800,12 @@ const Home = (props) => {
             flex-shrink: 0;
             border-radius: 16px;
             justify-content: center;
-            background-color: var(--dl-color-dawgz.ai-lemonchiffon);
+            background-color: #FFF7CB;
           }
           .home-text34 {
             color: var(--dl-color-dawgz.ai-black);
             height: auto;
+            font-family: 'Architects Daughter';
             text-align: left;
             line-height: 20px;
           }
@@ -450,6 +814,7 @@ const Home = (props) => {
             top: 241.39999389648438px;
             left: 281.5px;
             width: 244px;
+            height: 66px;
             display: flex;
             padding: 14px 12px;
             position: absolute;
@@ -457,11 +822,12 @@ const Home = (props) => {
             flex-shrink: 0;
             border-radius: 16px;
             justify-content: center;
-            background-color: var(--dl-color-dawgz.ai-lemonchiffon);
+            background-color: #FFF7CB;
           }
           .home-text38 {
             color: var(--dl-color-dawgz.ai-black);
             height: auto;
+            font-family: 'Architects Daughter';
             text-align: left;
             line-height: 20px;
           }
@@ -509,6 +875,37 @@ const Home = (props) => {
             text-align: center;
             line-height: 24px;
           }
+          .home-component21, .home-component22, .home-component24, .home-component25, .home-component26 {
+            cursor: pointer !important;
+            transition: all 0.3s ease;
+            pointer-events: auto !important;
+            position: relative;
+            z-index: 10;
+          }
+          
+          .home-component21:hover, .home-component22:hover, .home-component24:hover, .home-component25:hover, .home-component26:hover {
+            opacity: 0.8;
+            transform: translateY(-2px);
+          }
+          
+          .home-component21.selected, .home-component22.selected,
+          .home-component24.selected, .home-component25.selected,
+          .home-component26.selected {
+            background-color: #000000 !important;
+          }
+          
+          .home-component21.selected .home-text43,
+          .home-component22.selected .home-text44,
+          .home-component24.selected .home-text46,
+          .home-component25.selected .home-text47,
+          .home-component26.selected .home-text48 {
+            color: #ffffff !important;
+          }
+          
+          .selected-text {
+            color: #ffffff !important;
+          }
+          
           .home-component21 {
             gap: 12px;
             top: 330.7300109863281px;
@@ -526,27 +923,9 @@ const Home = (props) => {
             border-width: 1px;
             border-radius: 16px;
             justify-content: center;
-            background-color: rgba(0, 0, 0, 1);
+            background-color: rgba(238, 227, 210, 1);
           }
-          .home-arrow1 {
-            width: 24px;
-            height: 24px;
-            display: flex;
-            overflow: hidden;
-            align-items: flex-start;
-            flex-shrink: 0;
-            flex-direction: column;
-          }
-          .home-ethsvgfill1 {
-            width: 24px;
-            height: 24px;
-          }
-          .home-text43 {
-            color: var(--dl-color-dawgz.ai-white);
-            height: auto;
-            text-align: left;
-            line-height: normal;
-          }
+          
           .home-component22 {
             gap: 12px;
             top: 330.7300109863281px;
@@ -566,25 +945,6 @@ const Home = (props) => {
             justify-content: center;
             background-color: rgba(238, 227, 210, 1);
           }
-          .home-arrow2 {
-            width: 24px;
-            height: 24px;
-            display: flex;
-            overflow: hidden;
-            align-items: flex-start;
-            flex-shrink: 0;
-            flex-direction: column;
-          }
-          .home-bnbsvgfill {
-            width: 24px;
-            height: 24px;
-          }
-          .home-text44 {
-            color: var(--dl-color-dawgz.ai-black);
-            height: auto;
-            text-align: left;
-            line-height: normal;
-          }
           .home-component23 {
             gap: 12px;
             top: 330.7300109863281px;
@@ -603,25 +963,8 @@ const Home = (props) => {
             border-radius: 16px;
             justify-content: center;
             background-color: rgba(238, 227, 210, 1);
-          }
-          .home-arrow3 {
-            width: 24px;
-            height: 24px;
-            display: flex;
-            overflow: hidden;
-            align-items: flex-start;
-            flex-shrink: 0;
-            flex-direction: column;
-          }
-          .home-solsvgfill {
-            width: 24px;
-            height: 24px;
-          }
-          .home-text45 {
-            color: var(--dl-color-dawgz.ai-black);
-            height: auto;
-            text-align: left;
-            line-height: normal;
+            opacity: 0.5;
+            cursor: not-allowed;
           }
           .home-component24 {
             gap: 12px;
@@ -640,26 +983,8 @@ const Home = (props) => {
             border-width: 1px;
             border-radius: 16px;
             justify-content: center;
-            background-color: rgba(0, 0, 0, 1);
-          }
-          .home-arrow4 {
-            width: 24px;
-            height: 24px;
-            display: flex;
-            overflow: hidden;
-            align-items: flex-start;
-            flex-shrink: 0;
-            flex-direction: column;
-          }
-          .home-ethsvgfill2 {
-            width: 24px;
-            height: 24px;
-          }
-          .home-text46 {
-            color: var(--dl-color-dawgz.ai-white);
-            height: auto;
-            text-align: left;
-            line-height: normal;
+            background-color: rgba(238, 227, 210, 1);
+            cursor: pointer;
           }
           .home-component25 {
             gap: 12px;
@@ -679,25 +1004,7 @@ const Home = (props) => {
             border-radius: 16px;
             justify-content: center;
             background-color: rgba(238, 227, 210, 1);
-          }
-          .home-arrow5 {
-            width: 24px;
-            height: 24px;
-            display: flex;
-            overflow: hidden;
-            align-items: flex-start;
-            flex-shrink: 0;
-            flex-direction: column;
-          }
-          .home-usdtsvgfill {
-            width: 24px;
-            height: 24px;
-          }
-          .home-text47 {
-            color: var(--dl-color-dawgz.ai-black);
-            height: auto;
-            text-align: left;
-            line-height: normal;
+            cursor: pointer;
           }
           .home-component26 {
             gap: 12px;
@@ -717,8 +1024,10 @@ const Home = (props) => {
             border-radius: 16px;
             justify-content: center;
             background-color: rgba(238, 227, 210, 1);
+            cursor: pointer;
           }
-          .home-arrow6 {
+          .home-arrow1, .home-arrow2, .home-arrow3,
+          .home-arrow4, .home-arrow5, .home-arrow6 {
             width: 24px;
             height: 24px;
             display: flex;
@@ -727,9 +1036,64 @@ const Home = (props) => {
             flex-shrink: 0;
             flex-direction: column;
           }
-          .home-usdcsvgfill {
+          .home-ethsvgfill1, .home-bnbsvgfill, .home-solsvgfill,
+          .home-ethsvgfill2, .home-usdtsvgfill, .home-usdcsvgfill {
             width: 24px;
             height: 24px;
+          }
+          .eth-input, .dagz-input {
+            width: 100%;
+            height: 100%;
+            border: none;
+            background: transparent;
+            font-family: 'Architects Daughter';
+            font-size: 16px;
+            color: var(--dl-color-dawgz.ai-black);
+            outline: none;
+          }
+          
+          .eth-input:focus, .dagz-input:focus {
+            outline: none;
+          }
+          
+          .eth-input::placeholder, .dagz-input::placeholder {
+            color: var(--dl-color-dawgz.ai-black60);
+          }
+          
+          .home-input1, .home-input2 {
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+          }
+          .home-text43 {
+            color: var(--dl-color-dawgz.ai-white);
+            height: auto;
+            text-align: left;
+            line-height: normal;
+          }
+          .home-text44 {
+            color: var(--dl-color-dawgz.ai-black);
+            height: auto;
+            text-align: left;
+            line-height: normal;
+          }
+          .home-text45 {
+            color: var(--dl-color-dawgz.ai-black);
+            height: auto;
+            text-align: left;
+            line-height: normal;
+          }
+          .home-text46 {
+            color: var(--dl-color-dawgz.ai-white);
+            height: auto;
+            text-align: left;
+            line-height: normal;
+          }
+          .home-text47 {
+            color: var(--dl-color-dawgz.ai-black);
+            height: auto;
+            text-align: left;
+            line-height: normal;
           }
           .home-text48 {
             color: var(--dl-color-dawgz.ai-black);
@@ -744,6 +1108,7 @@ const Home = (props) => {
             width: 73px;
             height: auto;
             position: absolute;
+            font-family: 'Architects Daughter';
             text-align: left;
             line-height: 20px;
           }
@@ -753,9 +1118,7 @@ const Home = (props) => {
             width: 244px;
             height: 56px;
             display: flex;
-            padding: 19.600000381469727px 87.5999984741211px
-              19.600000381469727px 17.600000381469727px;
-            overflow: hidden;
+            padding: 19.600000381469727px 17.600000381469727px;
             position: absolute;
             align-items: flex-start;
             flex-shrink: 0;
@@ -763,7 +1126,6 @@ const Home = (props) => {
             border-style: solid;
             border-width: 1px;
             border-radius: 16px;
-            justify-content: center;
             background-color: var(--dl-color-dawgz.ai-white);
           }
           .home-container3 {
@@ -782,6 +1144,7 @@ const Home = (props) => {
             width: 30px;
             height: auto;
             position: absolute;
+            font-family: 'Architects Daughter';
             text-align: left;
             line-height: 20px;
           }
@@ -808,6 +1171,7 @@ const Home = (props) => {
             width: 110px;
             height: auto;
             position: absolute;
+            font-family: 'Architects Daughter';
             text-align: left;
             line-height: 20px;
           }
@@ -817,9 +1181,7 @@ const Home = (props) => {
             width: 244px;
             height: 56px;
             display: flex;
-            padding: 19.600000381469727px 121.5999984741211px
-              19.600000381469727px 17.600000381469727px;
-            overflow: hidden;
+            padding: 19.600000381469727px 17.600000381469727px;
             position: absolute;
             align-items: flex-start;
             flex-shrink: 0;
@@ -827,7 +1189,6 @@ const Home = (props) => {
             border-style: solid;
             border-width: 1px;
             border-radius: 16px;
-            justify-content: center;
             background-color: var(--dl-color-dawgz.ai-white);
           }
           .home-container4 {
@@ -845,6 +1206,7 @@ const Home = (props) => {
             width: 51px;
             height: auto;
             position: absolute;
+            font-family: 'Architects Daughter';
             text-align: left;
             line-height: 20px;
           }
@@ -861,19 +1223,14 @@ const Home = (props) => {
             background-size: cover;
             background-image: url('/external/tq_1vpkindokr-v7af-200h.png');
           }
-          .home-button {
+          .home-button-container {
             top: 597.1300048828125px;
             left: 25.600000381469727px;
             width: 500px;
+            height: 51.2px;
             display: flex;
             padding: 13.600000381469727px 25.600000381469727px;
             position: absolute;
-            background: linear-gradient(
-              127deg,
-              rgba(255, 214, 0, 1) 24%,
-              rgba(255, 124, 2, 1) 100%
-            );
-            box-shadow: -2px 2px 0px 0px rgba(0, 0, 0, 1);
             align-items: center;
             flex-shrink: 0;
             border-color: rgba(0, 0, 0, 1);
@@ -881,6 +1238,8 @@ const Home = (props) => {
             border-width: 1px;
             border-radius: 12px;
             justify-content: center;
+            background: linear-gradient(127deg, rgba(255, 214, 0, 1) 24%, rgba(255, 124, 2, 1) 100%);
+            box-shadow: -2px 2px 0px 0px rgba(0, 0, 0, 1);
           }
           .home-text53 {
             color: var(--dl-color-dawgz.ai-black);
@@ -994,6 +1353,48 @@ const Home = (props) => {
             flex-shrink: 0;
             background-size: cover;
             background-image: url('/external/tq_s8gxp09zvz-ol-1500w.png');
+          }
+          .countdown-container {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+            justify-content: center;
+            align-items: center;
+            position: absolute;
+            top: 50px;
+            left: 0;
+            right: 0;
+          }
+          
+          .countdown-box {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 116px;
+            height: 52px;
+            margin-right: 10px;
+            border: 1px solid rgba(0, 0, 0, 1);
+            border-radius: 12px;
+            background-color: rgba(255, 255, 255, 0.97);
+            flex-direction: column;
+            padding: 5px;
+          }
+          
+          .countdown-value {
+            color: var(--dl-color-dawgz.ai-black);
+            font-size: 24px;
+            font-weight: 700;
+            line-height: 32px;
+            text-align: center;
+            font-family: 'Architects Daughter';
+          }
+          
+          .countdown-label {
+            color: var(--dl-color-dawgz.ai-black);
+            font-size: 14px;
+            text-align: center;
+            line-height: 16px;
+            font-family: 'Architects Daughter';
           }
           @media (max-width: 1600px) {
             .home-background {
