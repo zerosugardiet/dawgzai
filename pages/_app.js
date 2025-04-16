@@ -11,3 +11,4 @@ export default function MyApp({ Component, pageProps }) {
     </NextIntlProvider>
   )
 }
+// Test
